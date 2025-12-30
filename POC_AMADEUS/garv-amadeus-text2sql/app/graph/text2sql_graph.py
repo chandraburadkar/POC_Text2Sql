@@ -1,9 +1,8 @@
-# app/graph/text2sql_graph.py
-from app.audit.langsmith_tracing import tracing_session, traceable_fn
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, List
 
+from app.audit.langsmith_tracing import tracing_session, traceable_fn
 from app.state.agent_state import AgentState
 from app.rag.schema_index import build_schema_index
 from app.agents.query_rewriter import rewrite_query
@@ -26,6 +25,7 @@ def _safe_get_sql(candidate_sql: Any) -> str:
         return candidate_sql
     return ""
 
+
 @traceable_fn("run_text2sql")
 def run_text2sql(
     user_question: str,
@@ -38,7 +38,6 @@ def run_text2sql(
     Returns a stable, notebook-friendly response contract.
     """
     with tracing_session():
-
         state = AgentState(user_question=user_question)
 
         # STEP 5: Query Rewriter
@@ -59,7 +58,6 @@ def run_text2sql(
             if getattr(d, "metadata", None):
                 t = d.metadata.get("table")
             if not t:
-                # fallback parse from page_content line "Table: xyz"
                 first_line = (d.page_content or "").splitlines()[0:1]
                 if first_line and first_line[0].lower().startswith("table:"):
                     t = first_line[0].split(":", 1)[1].strip()
@@ -91,7 +89,7 @@ def run_text2sql(
                 "debug": {"rewriter": rew},
             }
 
-        # STEP 7: SQL Validator + Auto-fix (expects schema_context + candidate_sql string)
+        # STEP 7: SQL Validator + Auto-fix
         val = validate_and_autofix_sql(
             rewritten_query=state.rewritten_query,
             schema_context=state.schema_context,
@@ -118,13 +116,10 @@ def run_text2sql(
                 "debug": {"rewriter": rew, "validator": val},
             }
 
-        # STEP 8: SQL Execution (your executor returns dict with df inside)
+        # STEP 8: SQL Execution (executor returns dict incl df)
         exec_out = execute_sql(state.final_sql, limit_preview=return_rows)
-        # state.dataframe = exec_out
 
-        # STEP 8: Explanation (call explainer with signature it supports)
-        # Your explainer currently doesn't accept intent/entities (you got that error),
-        # so we only pass the common args.
+        # STEP 9: Explanation
         explanation = explain_answer(
             user_question=state.user_question,
             sql=state.final_sql,
@@ -132,27 +127,27 @@ def run_text2sql(
         )
         state.explanation = explanation
 
-        # STEP 10: Stable response contract (aliases added)
+        # STEP 10: Stable response contract
         return {
             "ok": True,
             "intent": state.intent,
             "entities": state.entities,
             "rewritten_query": state.rewritten_query,
             "retrieved_tables": state.retrieved_tables,
-            "candidate_sql": cand,                 # dict from generator
-            "final_sql": state.final_sql,          # string
+            "candidate_sql": state.candidate_sql,
+            "final_sql": state.final_sql,
             "fixed_by_llm": state.fixed_by_llm,
 
-            # executor output
-            "dataframe": exec_out,                 # dict (df, preview_markdown, row_count, columns)
+            # Execution outputs
+            "dataframe": exec_out,                   # dict with df, columns, row_count, preview_markdown
+            "result_df": exec_out.get("df"),         # actual pandas df
+            "preview_markdown": exec_out.get("preview_markdown"),
 
-            # notebook-friendly aliases
-            "result_df": exec_out.get("df"),       # <-- THIS fixes your KeyError
-            "preview_markdown": exec_out.get("preview_markdown", ""),
-            "row_count": exec_out.get("row_count", 0),
-            "columns": exec_out.get("columns", []),
+            # Explanation
+            "explanation": state.explanation,
 
-            "explanation": explanation,
-            "chart_path": None,  # reserved for Step 11
+            # Visualization placeholder
+            "chart_path": None,
+
             "debug": {"rewriter": rew, "validator": val},
         }

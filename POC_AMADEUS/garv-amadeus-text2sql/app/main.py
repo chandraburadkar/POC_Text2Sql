@@ -3,34 +3,25 @@ from __future__ import annotations
 
 import sys
 from dotenv import load_dotenv
+load_dotenv(override=True)
 
 from app.graph.text2sql_graph import run_text2sql
 
 
 def main():
-    load_dotenv(override=True)
-
     if len(sys.argv) < 2:
-        print('Usage: python -m app.main "your question here"')
+        print("Usage: python -m app.main \"<your question>\"")
         sys.exit(1)
 
-    question = sys.argv[1]
-    out = run_text2sql(question)
+    q = sys.argv[1]
+    out = run_text2sql(q)
 
-    if not out.get("ok"):
-        print("FAILED:", out)
-        sys.exit(2)
-
-    print("\nUSER QUESTION:", question)
-    print("\nREWRITTEN:", out.get("rewritten_query"))
     print("\nFINAL SQL:\n", out.get("final_sql"))
+    print("\nPREVIEW:\n", out.get("preview_markdown", ""))
 
-    df = out.get("result_df")
-    if df is not None:
-        print("\nRESULT PREVIEW:")
-        print(out.get("dataframe", {}).get("preview_markdown", ""))
-
-    print("\nEXPLANATION:\n", out.get("explanation", {}).get("summary", ""))
+    expl = out.get("explanation", {})
+    if expl:
+        print("\nEXPLANATION:\n", expl.get("summary", ""))
 
 
 if __name__ == "__main__":
